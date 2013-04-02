@@ -24,7 +24,7 @@
 CC = gcc
 CXX = g++
 LD = g++
-OPT_CFLAGS = -O2
+OPT_CFLAGS = -O2 -g
 CFLAGS = $(OPT_CFLAGS)
 PROG_CFLAGS =  -fPIC
 EXE_CFLAGS =  -lpthread -lrt -ldl
@@ -40,7 +40,8 @@ INCLUDES = -I/usr/include/canfestival
 
 MASTER_OBJS = CANOpenShellMasterOD.o CANOpenShellSlaveOD.o CANOpenShell.o
 
-OBJS = $(MASTER_OBJS) -lcanfestival -lcanfestival_can_socket -lcanfestival_unix -lreadline
+#OBJS = $(MASTER_OBJS) -lcanfestival -lcanfestival_can_socket -lcanfestival_unix -lreadline
+OBJS = $(MASTER_OBJS) -lcanfestival -lcanfestival_can_peak_linux -lcanfestival_unix -lreadline
 
 ifeq ($(TIMERS_DRIVER),timers_xeno)
 	PROGDEFINES = -DUSE_XENO

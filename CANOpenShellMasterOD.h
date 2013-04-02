@@ -12,5 +12,6 @@ const indextable * CANOpenShellMasterOD_scanIndexOD (UNS16 wIndex, UNS32 * error
 
 /* Master node data struct */
 extern CO_Data CANOpenShellMasterOD_Data;
+extern UNS16 Status3;		/* Mapped at index 0x2003, subindex 0x00*/
 
 #endif // CANOPENSHELLMASTEROD_H

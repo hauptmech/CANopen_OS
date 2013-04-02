@@ -56,6 +56,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
                                   (char)c2) << 8 | \
                                  (char)c1
 
+#define WAIT_NS 500000000l
 #define INIT_ERR 2
 #define QUIT 1
 #define handle_error(msg) \
@@ -182,13 +183,11 @@ void CheckReadSDO(CO_Data* d, UNS8 nodeid)
 	if(getReadResultNetworkDict(CANOpenShellOD_Data, nodeid, &data, &size, &abortCode) != SDO_FINISHED)
 		printf("\nResult : Failed in getting information for slave %2.2x, AbortCode :%4.4x \n", nodeid, abortCode);
 	else
-		printf("\nResult : %x\n", data);
+		printf("\n= 0x%x (%d)\n", data,data);
 
 	/* Finalize last SDO transfer with this node */
 	closeSDOtransfer(CANOpenShellOD_Data, nodeid, SDO_CLIENT);
 }
-
-
 /* Read a slave node object dictionary entry */
 void ReadDeviceEntry(char* sdo)
 {
@@ -213,6 +212,15 @@ void ReadDeviceEntry(char* sdo)
 	}
 	else
 		printf("Wrong command  : %s\n", sdo);
+}
+
+/* Read a slave node object dictionary entry */
+void ReadSDOEntry(int nodeid, int index, int subindex)
+{
+	int ret=0;
+	int datatype = 0;
+
+		readNetworkDictCallback(CANOpenShellOD_Data, (UNS8)nodeid, (UNS16)index, (UNS8)subindex, (UNS8)datatype, CheckReadSDO, 0);
 }
 
 
@@ -252,7 +260,7 @@ UNS8 SDO_read(CO_Data* d, UNS8 nodeId, UNS16 index, UNS8 subIndex, UNS8 dataType
 	if (clock_gettime(CLOCK_REALTIME, &Read_sem_ts) == -1)
 		handle_error("clock_gettime");
 	
-	Read_sem_ts.tv_nsec += 100000000l; // 100ms
+	Read_sem_ts.tv_nsec += WAIT_NS; // 100ms
 			
 	if (Read_sem_ts.tv_nsec >= 1000000000l){
 		Read_sem_ts.tv_sec++;
@@ -309,7 +317,7 @@ UNS8 SDO_write(CO_Data* d, UNS8 nodeId, UNS16 index,
 	if (clock_gettime(CLOCK_REALTIME, &Write_sem_ts) == -1)
 		handle_error("clock_gettime");
 	
-	Write_sem_ts.tv_nsec += 100000000l; // 100ms
+	Write_sem_ts.tv_nsec += WAIT_NS; // 100ms
 			
 	if (Write_sem_ts.tv_nsec >= 1000000000l){
 		Write_sem_ts.tv_sec++;
@@ -376,6 +384,15 @@ void WriteDeviceEntry(char* sdo)
 		printf("Wrong command  : %s\n", sdo);
 }
 
+
+/* Write a slave node object dictionnary entry */
+void WriteSDOEntry(int nodeid, int index, int subindex, int size, UNS32  data)
+{
+	int ret=0;
+
+	writeNetworkDictCallBack(CANOpenShellOD_Data, nodeid, index, subindex, size, 0, &data, CheckWriteSDO, 0);
+}
+
 void CANOpenShellOD_post_SlaveBootup(CO_Data* d, UNS8 nodeid)
 {
 	printf("Slave %x boot up\n", nodeid);
@@ -413,6 +430,12 @@ void CANOpenShellOD_post_TPDO(CO_Data* d)
 }
 
 /***************************  INITIALISATION  **********************************/
+
+UNS32 OnStatus3Update(CO_Data* d, const indextable * unsused_indextable, UNS8 unsused_bSubindex)
+{
+    printf("Status3: %x\n",Status3);
+    return 0;
+}
 void Init(CO_Data* d, UNS32 id)
 {
 	if(Board.baudrate)
@@ -552,6 +575,16 @@ int ProcessCommand(char* command)
 					return 0;
 					break;
 
+		case cst_str4('s', 'y', 'n', '0') : /* Display master node state */
+                    stopSYNC(CANOpenShellOD_Data);
+                    break;
+		case cst_str4('s', 'y', 'n', '1') : /* Display master node state */
+                    startSYNC(CANOpenShellOD_Data);
+                    break;
+		case cst_str4('s', 't', 'a', 't') : /* Display master node state */
+                    printf("Status3: %x\n",Status3);
+                    Status3 = 0;
+                    break;
 		case cst_str4('s', 'c', 'a', 'n') : /* Display master node state */
 					DiscoverNodes();
 					break;
@@ -563,6 +596,9 @@ int ProcessCommand(char* command)
 						return 0;
 					}
 					break;
+		case cst_str4('g', 'o', 'o', 'o') : /* Quit application */
+            setState(CANOpenShellOD_Data, Operational);
+            break;
 		case cst_str4('q', 'u', 'i', 't') : /* Quit application */
 					LeaveMutex();
 					return QUIT;
@@ -592,6 +628,58 @@ int ProcessCommand(char* command)
 	return 0;
 }
 
+int ProcessFocusedCommand(char* command)
+{
+	int ret = 0;
+	int sec = 0;
+	int NodeID;
+	int NodeType;
+	UNS32 data = 0;
+	char buf[50];
+    int size;
+	int index;
+	int subindex = 0;
+	int datatype = 0;
+
+	EnterMutex();
+	switch(command[0])
+	{
+
+		case 's' : /* Slave Start*/
+					StartNode(CurrentNode);
+					break;
+        case 't' : /* slave stop */
+					StopNode(CurrentNode);
+					break;
+        case 'x' : /* slave reset */
+					ResetNode(CurrentNode);
+					break;
+		case 'r' : /* Read device entry */
+	                ret = sscanf(command, "r%4x,%2x", &index, &subindex);
+                    if (ret)
+                        ReadSDOEntry(CurrentNode,index,subindex);
+					break;
+		case 'w' : /* Write device entry */
+	                ret = sscanf(command, "w%4x,%2x,%2x,%x", &index, &subindex, &size, &data);
+                    if (ret)
+                        WriteSDOEntry(CurrentNode,index,subindex,size,data);
+					break;
+		case '?' : /* Read device entry */
+                    ReadSDOEntry(CurrentNode,0x6041,0);
+					break;
+		case 'c' : /* Write device entry */
+	                ret = sscanf(command, "w%x", &data);
+                    if (ret)
+                        WriteSDOEntry(CurrentNode,0x6040,0,0x2,data);
+					break;
+		
+		default :
+					help_menu();
+	}
+	LeaveMutex();
+	return 0;
+}
+
 /* A static variable for holding the line. */
 static char *line_read = (char *)NULL;
 
@@ -614,10 +702,12 @@ rl_gets ()
   /* If the line has any text in it,
      save it on the history. */
   if (line_read && *line_read)
+
     add_history (line_read);
 
   return (line_read);
 }
+
 
 /****************************************************************************/
 /***************************  MAIN  *****************************************/
@@ -637,7 +727,7 @@ int main(int argc, char** argv)
 	if (sem_init(&Read_sem, 0, 0) == -1)
         handle_error("Readsem_init");	
 	/* Defaults */
-	strcpy(LibraryPath,"/usr/lib/libcanfestival_can_socket.so");
+	strcpy(LibraryPath,"/usr/lib/libcanfestival_can_peak_linux.so");
 	strcpy(BoardBusName,"0");
 	strcpy(BoardBaudRate,"1M");
 
@@ -645,18 +735,24 @@ int main(int argc, char** argv)
 	TimerInit();
         
 	if (argc > 1){
+        printf("ok\n");
 		/* Strip command-line*/
 		for(i=1 ; i<argc ; i++)
 		{
 			if(ProcessCommand(argv[i]) == INIT_ERR) goto init_fail;
 		}
 	}
-	else {
-		NodeInit(0,1);
-	}
+    NodeInit(0,1);
+
+    RegisterSetODentryCallBack(CANOpenShellOD_Data, 0x2003, 0, &OnStatus3Update);
+
 
 	help_menu();
-	CurrentNode = 2;
+	CurrentNode = 3;
+    sleep(1);
+    //setState(CANOpenShellOD_Data, Operational);     // Put the master in operational mode
+    stopSYNC(CANOpenShellOD_Data);
+
 	/* Enter in a loop to read stdin command until "quit" is called */
 	while(ret != QUIT)
 	{
@@ -667,16 +763,24 @@ int main(int argc, char** argv)
 		if(res[0]=='.'){
 		ret = ProcessCommand(res+1);
 		}
+		else if(res[0]==','){
+		ret = ProcessFocusedCommand(res+1);
+		}
+        else if (res[0]=='\n'){
+
+        }
 		else {
 			
 			EnterMutex();
 			SDO_write(CANOpenShellOD_Data,CurrentNode,0x1023,0x01,strlen(res),visible_string, res, 0);
+
 			EnterMutex();
 			SDO_read(CANOpenShellOD_Data,CurrentNode,0x1023,0x03,visible_string,0);
 			
 			printf("%s\n",SDO_read_data);
 		}
 		fflush(stdout);
+        usleep(500000);
 	}
 
 	printf("Finishing.\n");
